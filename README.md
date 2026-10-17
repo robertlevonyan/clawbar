@@ -106,9 +106,11 @@ session. German replaces Russian as the second language.
   version) if it ever reaches the model or a flag is rejected, and says so on the widget.
 - Every probe has a timeout. `claude update` runs in the background for up to 15 minutes and reports a failure with
   its output, plus how to update a Homebrew or npm install.
-- The widget shows why numbers are missing: Claude Code not found (with the install command), an API-key login, or
-  a stopped probe.
-- Sessions refresh every 2 seconds.
+- The widget shows why numbers are missing: Claude Code not found (with the install command), a login without a
+  Claude subscription, or a stopped probe.
+- Stale numbers also turn the menu bar item grey, and its tooltip says when they are from.
+- Sessions refresh every 2 seconds. A `claude -p` run counts only once it is 20 seconds old, so another tool's
+  `/usage` check does not show up as a session or wake Clawd.
 - The sky uses the weather location's time zone, retries Open-Meteo hourly after falling back to met.no, and draws
   polar days and nights as day and night.
 - The widget stays on all Spaces, pauses its animation while hidden or covered, and moves back on screen if its
@@ -125,7 +127,7 @@ swift test
 
 The package has one target per concern: `ClawBarShared` (every type the others share, and the English and German
 string tables), `ClawBarData` (probes, sessions, config, weather), `ClawBarPresenter` (every display rule),
-`ClawBarClawd`, `ClawBarSky` and the `ClawBar` app. `CLAUDE.md` lists the toolchain quirks and rules.
+`ClawBarClawd`, `ClawBarSky` and the `ClawBar` app. `AGENTS.md` lists the toolchain quirks and rules.
 
 ## License
 

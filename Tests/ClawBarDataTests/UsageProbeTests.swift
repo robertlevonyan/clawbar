@@ -14,13 +14,6 @@ import ClawBarShared
         UsageProbe.interpret(r, now: now, timeZone: berlin).outcome
     }
 
-    /// today.json with one field replaced.
-    func todayEnvelope(_ edit: (inout [String: Any]) -> Void) -> Data {
-        var j = (try? JSONSerialization.jsonObject(with: Fixture.data("usage/today.json"))) as? [String: Any] ?? [:]
-        edit(&j)
-        return (try? JSONSerialization.data(withJSONObject: j)) ?? Data()
-    }
-
     @Test func theProbeAsksForUsageInSafeModeWithoutTouchingSessions() {
         let spec = UsageProbe.spec(claude: "/opt/x/claude", environment: ["PATH": "/usr/bin"], home: "/Users/example")
         #expect(spec.executable == "/opt/x/claude")
@@ -96,11 +89,18 @@ import ClawBarShared
         }
     }
 
-    @Test func anEnvelopeWithoutLimitsIsNoLimits() {
+    @Test func theCostSummaryIsNoLimits() {
         let data = todayEnvelope { $0["result"] = Fixture.text("usage/no-limits.txt") }
         let report = UsageProbe.interpret(finished(data), now: now, timeZone: berlin)
         #expect(report.outcome == .issue(.noLimits))
-        #expect(report.stats?.day?.requests == 52)
+        #expect(report.stats == UsageSnapshot())
+    }
+
+    @Test func anyOtherAnswerWithoutLimitsIsAFailedProbeWithAFixedMessage() {
+        for result in ["", Fixture.text("usage/subscription-unavailable.txt")] {
+            let data = todayEnvelope { $0["result"] = result }
+            #expect(outcome(finished(data)) == .issue(.probeFailed("no limit lines in /usage")))
+        }
     }
 }
 

@@ -37,6 +37,13 @@ final class TempDir {
         #expect(!installed("/Users/example/Applications/ClawBar.app", id: "com.example.other"))
         #expect(!installed("/Users/example/Applications/ClawBar.app", id: nil))
     }
+
+    @Test func onlyTheDefaultRootManagesTheLoginItem() {
+        let sandbox = AppPaths(root: URL(fileURLWithPath: "/tmp/cb-login-\(UUID().uuidString)/sandbox"))
+        #expect(LaunchAtLogin.managesLoginItem(installed: true, paths: .live(environment: [:])))
+        #expect(!LaunchAtLogin.managesLoginItem(installed: true, paths: sandbox))
+        #expect(!LaunchAtLogin.managesLoginItem(installed: false, paths: .live(environment: [:])))
+    }
 }
 
 final class FakeLoginItem: LoginItemService {
@@ -89,17 +96,48 @@ final class FakeLoginItem: LoginItemService {
 }
 
 @Suite struct InstanceLockTests {
+    /// The lock, or nil when the attempt failed or found it held.
+    func acquired(_ url: URL) -> InstanceLock? {
+        if case .acquired(let l) = InstanceLock.acquire(url) { return l }
+        return nil
+    }
+
     @Test func theFirstLaunchHoldsTheLockAndASecondCannot() throws {
         let tmp = TempDir()
         let file = tmp.url.appendingPathComponent("nested/clawbar.lock")
-        let first = try #require(InstanceLock.acquire(file))
-        #expect(InstanceLock.acquire(file) == nil)
+        let first = try #require(acquired(file))
+        guard case .held = InstanceLock.acquire(file) else {
+            Issue.record("expected the lock to be held")
+            return
+        }
         #expect(InstanceLock.isHeld(file))
         first.release()
         #expect(!InstanceLock.isHeld(file))
-        let again = InstanceLock.acquire(file)
+        let again = acquired(file)
         #expect(again != nil)
         again?.release()
+    }
+
+    @Test(.enabled(if: geteuid() != 0, "root may open anything"))
+    func aReadOnlyLockFileStillLocks() throws {
+        let tmp = TempDir()
+        let file = tmp.url.appendingPathComponent("clawbar.lock")
+        try FileManager.default.createDirectory(at: tmp.url, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o444])
+        let lock = try #require(acquired(file))
+        lock.release()
+    }
+
+    @Test func aLockThatCannotBeOpenedIsAFailureNotAnotherInstance() throws {
+        let tmp = TempDir()
+        try FileManager.default.createDirectory(at: tmp.url, withIntermediateDirectories: true)
+        let plain = tmp.url.appendingPathComponent("plain")
+        FileManager.default.createFile(atPath: plain.path, contents: Data())
+        guard case .failed(let e) = InstanceLock.acquire(plain.appendingPathComponent("clawbar.lock")) else {
+            Issue.record("expected a failure")
+            return
+        }
+        #expect(e == ENOTDIR)
     }
 
     @Test func noLockFileMeansNobodyIsRunning() {
@@ -107,5 +145,23 @@ final class FakeLoginItem: LoginItemService {
         let file = tmp.url.appendingPathComponent("clawbar.lock")
         #expect(!InstanceLock.isHeld(file))
         #expect(!FileManager.default.fileExists(atPath: file.path), "probing must not create the lock file")
+    }
+}
+
+@Suite struct TerminationSignalsTests {
+    final class Flag {
+        var raised = false
+    }
+
+    @Test func aSignalRunsTheHandlerOnTheMainQueueInsteadOfEndingTheProcess() async {
+        let flag = Flag()
+        let signals = TerminationSignals([SIGUSR1]) { flag.raised = true }
+        defer { signals.cancel() }
+        // The source registers with the kernel after resume(), so a signal sent at once may come too early.
+        for _ in 0 ..< 100 where !flag.raised {
+            kill(getpid(), SIGUSR1)
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(flag.raised)
     }
 }

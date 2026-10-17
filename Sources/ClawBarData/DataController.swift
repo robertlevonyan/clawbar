@@ -68,6 +68,8 @@ public final class DataController {
     private var version = Slot()
     private var changelog = Slot()
     private var versionAgain = false
+    /// After a clean `claude update`: the version it started from, for the next look to judge.
+    private var pendingVerify: String?
     private var updating = false
     private var stopped = false
     private var tasks: [Int: Task<Void, Never>] = [:]
@@ -114,7 +116,7 @@ public final class DataController {
     /// Re-reads the session registry synchronously.
     public func pollSessions(now: Date) {
         guard !stopped, resolution == .done else { return }
-        readSessions()
+        readSessions(now: now)
     }
 
     /// Refresh now: start the usage probe unless one is running or the probe is latched.
@@ -132,10 +134,14 @@ public final class DataController {
         updating = true
         snapshot.version.updating = true
         snapshot.version.updateFailure = nil
+        pendingVerify = nil
+        let from = snapshot.version.local, to = snapshot.version.latest
         let spec = UpdateRunner.spec(claude: claude.path, environment: childEnvironment, home: deps.home, log: paths.updateLog)
         let runner = deps.runner, logURL = paths.updateLog, home = deps.home
         spawn { me in
-            let failure = UpdateRunner.failure(await runner.run(spec), log: logURL, home: home)
+            var failure = UpdateRunner.failure(await runner.run(spec), log: logURL, home: home)
+            failure?.from = from
+            failure?.to = to
             me.completing {
                 me.updating = false
                 me.snapshot.version.updating = false
@@ -144,6 +150,7 @@ public final class DataController {
                     me.fail("update", "exit \(failure.exitCode.map(String.init) ?? "timeout"): \(failure.outputTail)")
                 } else {
                     me.succeed("update")
+                    me.pendingVerify = from
                 }
                 // The version may have changed either way: look again now.
                 me.version.lastTry = nil
@@ -174,7 +181,7 @@ public final class DataController {
                 me.resolution = .done
                 let now = me.deps.clock()
                 me.locate(now: now)
-                me.readSessions()
+                me.readSessions(now: now)
                 me.startDue(now: now)
             }
         }
@@ -230,7 +237,7 @@ public final class DataController {
                     me.snapshot.usageIssue = nil
                     me.succeed("usage")
                 case .issue(.noLimits):
-                    // An answer without limits: the old subscription's numbers no longer apply, its stats do.
+                    // A login without a subscription: the old subscription's numbers no longer apply, its stats do.
                     me.snapshot.usage = report.stats ?? UsageSnapshot()
                     me.snapshot.usageAt = clock()
                     me.snapshot.usageIssue = .noLimits
@@ -264,6 +271,9 @@ public final class DataController {
         guard let claude else { return }
         version.lastTry = now
         version.running = true
+        // Only a look started after a clean update may judge it; one already running saw the old version.
+        let verifying = pendingVerify
+        pendingVerify = nil
         let spec = VersionProbe.spec(claude: claude.path, environment: childEnvironment, home: deps.home)
         let settings = URL(fileURLWithPath: configDirectory).appendingPathComponent("settings.json")
         let runner = deps.runner, http = deps.http
@@ -281,6 +291,7 @@ public final class DataController {
                 } else {
                     me.succeed("version")
                 }
+                me.judgeUpdate(probed: local, startedFrom: verifying)
                 me.checkLatch()
                 if me.versionAgain {
                     me.versionAgain = false
@@ -288,6 +299,21 @@ public final class DataController {
                 }
                 me.startChangelogIfNeeded(now: me.deps.clock())
             }
+        }
+    }
+
+    /// A failed update lasts while the versions it started from hold, as upstream's failed=<ver> does; a clean exit
+    /// that left the version where it was, with the update still out, is a failure too.
+    private func judgeUpdate(probed: String?, startedFrom: String?) {
+        let v = snapshot.version
+        if let f = v.updateFailure, !(v.updateAvailable && f.holds(local: v.local, latest: v.latest)) {
+            snapshot.version.updateFailure = nil
+        }
+        if let startedFrom, probed == startedFrom, v.updateAvailable {
+            snapshot.version.updateFailure = UpdateFailure(
+                exitCode: 0, outputTail: UpdateRunner.tail(of: paths.updateLog, home: deps.home), from: startedFrom, to: v.latest
+            )
+            fail("update", "exit 0, but Claude Code is still \(startedFrom)")
         }
     }
 
@@ -373,11 +399,11 @@ public final class DataController {
         }
     }
 
-    private func readSessions() {
+    private func readSessions(now: Date) {
         guard config.showSessions || config.showMascot else { return }
         let dir = SessionRegistry.directory(configDir: configDirectory, home: deps.home)
         snapshot.sessions = SessionRegistry(directory: dir, table: deps.table, readFile: deps.readFile)
-            .read(excluding: deps.runner.childPIDs)
+            .read(excluding: deps.runner.childPIDs, now: now)
         snapshot.sessionsRead = true
     }
 

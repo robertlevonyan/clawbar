@@ -47,8 +47,9 @@ final class Harness {
 
     func make() -> DataController { DataController(config: config, paths: paths, deps: deps) }
 
-    func session(_ pid: Int32, in configDir: String, status: String = "busy") {
+    func session(_ pid: Int32, in configDir: String, status: String = "busy", _ extra: [String: Any] = [:]) {
         let j: [String: Any] = ["pid": pid, "sessionId": "s\(pid)", "cwd": "/Users/example/p\(pid)", "status": status, "kind": "interactive"]
+            .merging(extra) { $1 }
         let url = URL(fileURLWithPath: configDir).appendingPathComponent("sessions/\(pid).json")
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONSerialization.data(withJSONObject: j).write(to: url)
@@ -122,23 +123,33 @@ final class Counter {
         #expect(log.contains("usage: exit 1: boom"))
     }
 
-    @Test func anAPIKeyLoginReplacesTheOldLimitsWithItsOwnStats() async throws {
+    @Test func aLoginWithoutASubscriptionClearsTheOldLimits() async {
         let h = Harness()
         h.runner.reply(.usage, data: Fixture.data("usage/today.json"))
         let dc = h.make()
         dc.tick(now: t0)
         #expect(await eventually { dc.snapshot.usage?.sessionPercent == 50 })
-        var envelope = try #require(try JSONSerialization.jsonObject(with: Fixture.data("usage/today.json")) as? [String: Any])
-        envelope["result"] = Fixture.text("usage/no-limits.txt")
-        h.runner.reply(.usage, data: try JSONSerialization.data(withJSONObject: envelope))
+        h.runner.reply(.usage, data: todayEnvelope { $0["result"] = Fixture.text("usage/no-limits.txt") })
         h.clock.now = t0 + 60
         dc.tick(now: t0 + 60)
         #expect(await eventually { dc.snapshot.usageIssue == .noLimits })
-        // The subscription's limits no longer apply; the stats are this login's and fresh.
-        #expect(dc.snapshot.usage == UsageSnapshot(day: UsagePeriod(
-            requests: 52, sessions: 3, lines: ["40% of your usage was at >150k context"]
-        )))
+        // The subscription's limits no longer apply; the /cost summary carries no stats.
+        #expect(dc.snapshot.usage == UsageSnapshot())
         #expect(dc.snapshot.usageAt == t0 + 60)
+    }
+
+    @Test func aSubscriptionAnswerWithoutLimitsKeepsTheLastNumbers() async {
+        let h = Harness()
+        h.runner.reply(.usage, data: Fixture.data("usage/today.json"))
+        let dc = h.make()
+        dc.tick(now: t0)
+        #expect(await eventually { dc.snapshot.usage?.sessionPercent == 50 })
+        h.runner.reply(.usage, data: todayEnvelope { $0["result"] = Fixture.text("usage/subscription-unavailable.txt") })
+        h.clock.now = t0 + 60
+        dc.tick(now: t0 + 60)
+        #expect(await eventually { dc.snapshot.usageIssue == .probeFailed("no limit lines in /usage") })
+        #expect(dc.snapshot.usage?.sessionPercent == 50)
+        #expect(dc.snapshot.usageAt == t0)
     }
 
     @Test func reachingTheModelLatchesPerCLIVersionAndANewVersionReArms() async {
@@ -248,6 +259,23 @@ final class Counter {
         #expect(!h.spy.names.contains { $0.hasSuffix(".key") })
     }
 
+    @Test func anotherToolsFreshUsageCheckIsNoSession() async {
+        let h = Harness()
+        let dir = h.home + "/.claude"
+        h.table = FakeTable(starts: [8001: .unknown, 8002: .unknown])
+        let ms = { (d: Date) in d.timeIntervalSince1970 * 1000 }
+        h.session(8001, in: dir, ["entrypoint": "sdk-cli", "startedAt": ms(t0 - 3)])
+        h.session(8002, in: dir, ["entrypoint": "sdk-cli", "startedAt": ms(t0 - 60)])
+        let dc = h.make()
+        dc.tick(now: t0)
+        #expect(await eventually { dc.snapshot.sessionsRead })
+        // The hand clock, not the wall clock, decides what is fresh.
+        dc.pollSessions(now: t0)
+        #expect(dc.snapshot.sessions.map(\.pid) == [8002])
+        dc.pollSessions(now: t0 + 30)
+        #expect(dc.snapshot.sessions.map(\.pid) == [8001, 8002])
+    }
+
     @Test func theAuthProbesConfigDirectoryTakesOver() async {
         let h = Harness()
         let work = h.home + "/.claude-work"
@@ -311,6 +339,9 @@ final class Counter {
         #expect(await eventually { dc.snapshot.version.local == "2.1.303" })
         #expect(h.runner.count(.version) > versions)
 
+        h.http.answer("downloads.claude.ai", Data("2.1.304\n".utf8))
+        dc.tick(now: t0 + 3600)
+        #expect(await eventually { dc.snapshot.version.updateAvailable })
         dc.startClaudeUpdate()
         #expect(await eventually { h.runner.count(.update) == 2 })
         // What the real child would have written there.
@@ -318,7 +349,104 @@ final class Counter {
         try Data("Error: managed by a package manager\n".utf8).write(to: h.paths.updateLog)
         h.runner.release(.update, data: Data(), exit: 1)
         #expect(await eventually { dc.snapshot.version.updateFailure != nil })
-        #expect(dc.snapshot.version.updateFailure == UpdateFailure(exitCode: 1, outputTail: "Error: managed by a package manager"))
+        #expect(dc.snapshot.version.updateFailure == UpdateFailure(
+            exitCode: 1, outputTail: "Error: managed by a package manager", from: "2.1.303", to: "2.1.304"
+        ))
+    }
+
+    /// A controller whose Claude Code is one release behind, once it has seen the update.
+    func behind() async -> (Harness, DataController) {
+        let h = Harness()
+        h.http.answer("downloads.claude.ai", Data("2.1.303\n".utf8))
+        let dc = h.make()
+        dc.tick(now: t0)
+        #expect(await eventually { dc.snapshot.version.updateAvailable })
+        return (h, dc)
+    }
+
+    /// Ticks one version interval later and waits until that look has finished.
+    func lookAgain(_ h: Harness, _ dc: DataController, at now: Date) async {
+        let versions = h.runner.count(.version)
+        dc.tick(now: now)
+        _ = await eventually { h.runner.count(.version) > versions }
+        await settle()
+    }
+
+    /// Runs an update with this exit and waits for the look the controller takes right after it.
+    func runUpdate(_ h: Harness, _ dc: DataController, exit: Int32) async {
+        h.runner.reply(.update, data: Data(), exit: exit)
+        let versions = h.runner.count(.version)
+        dc.startClaudeUpdate()
+        #expect(await eventually { h.runner.count(.version) > versions })
+        await settle()
+    }
+
+    @Test func aFailedUpdateStaysUntilClaudeCodeHasUpdatedAnyway() async {
+        let (h, dc) = await behind()
+        await runUpdate(h, dc, exit: 1)
+        // The look right after the run, and a look whose claude --version failed, change nothing.
+        let failed = UpdateFailure(exitCode: 1, outputTail: "", from: "2.1.302", to: "2.1.303")
+        #expect(dc.snapshot.version.updateFailure == failed)
+        h.runner.reply(.version, stdout: "", exit: 1)
+        await lookAgain(h, dc, at: t0 + 3600)
+        #expect(dc.snapshot.version.updateFailure == failed)
+        // Claude Code's own updater got there.
+        h.runner.reply(.version, stdout: "2.1.303 (Claude Code)\n")
+        await lookAgain(h, dc, at: t0 + 7200)
+        #expect(dc.snapshot.version.local == "2.1.303")
+        #expect(dc.snapshot.version.updateFailure == nil)
+    }
+
+    @Test func aNewerReleaseClearsAFailedUpdate() async {
+        let (h, dc) = await behind()
+        await runUpdate(h, dc, exit: 1)
+        #expect(dc.snapshot.version.updateFailure != nil)
+        h.http.answer("downloads.claude.ai", Data("2.1.304\n".utf8))
+        await lookAgain(h, dc, at: t0 + 3600)
+        #expect(dc.snapshot.version.latest == "2.1.304")
+        #expect(dc.snapshot.version.updateFailure == nil)
+    }
+
+    @Test func aCleanExitThatLeavesTheVersionIsAFailure() async throws {
+        let (h, dc) = await behind()
+        try FileManager.default.createDirectory(at: h.paths.root, withIntermediateDirectories: true)
+        try Data("Checking for updates...\nDone\n".utf8).write(to: h.paths.updateLog)
+        await runUpdate(h, dc, exit: 0)
+        #expect(await eventually { dc.snapshot.version.updateFailure != nil })
+        #expect(dc.snapshot.version.updateFailure == UpdateFailure(
+            exitCode: 0, outputTail: "Checking for updates...\nDone", from: "2.1.302", to: "2.1.303"
+        ))
+        let log = try String(contentsOf: h.paths.errorLog, encoding: .utf8)
+        #expect(log.contains("update: exit 0, but Claude Code is still 2.1.302"))
+    }
+
+    @Test func onlyALookStartedAfterACleanExitJudgesIt() async {
+        let (h, dc) = await behind()
+        h.runner.reply(.update, .hold)
+        dc.startClaudeUpdate()
+        #expect(await eventually { h.runner.count(.update) == 1 })
+        // A look already running when the update ends still sees the old version.
+        h.runner.reply(.version, .hold)
+        dc.tick(now: t0 + 3600)
+        #expect(await eventually { h.runner.count(.version) == 2 })
+        await settle()
+        h.runner.release(.update, data: Data())
+        #expect(await eventually { !dc.snapshot.version.updating })
+        h.runner.release(.version, data: Data("2.1.302 (Claude Code)\n".utf8))
+        #expect(await eventually { h.runner.count(.version) == 3 })
+        await settle()
+        #expect(dc.snapshot.version.updateFailure == nil)
+        // The look after the run is the one that counts.
+        h.runner.release(.version, data: Data("2.1.303 (Claude Code)\n".utf8))
+        #expect(await eventually { dc.snapshot.version.local == "2.1.303" })
+        #expect(dc.snapshot.version.updateFailure == nil)
+    }
+
+    @Test func aFailedLookAfterACleanExitIsNoFailure() async {
+        let (h, dc) = await behind()
+        h.runner.reply(.version, stdout: "", exit: 1)
+        await runUpdate(h, dc, exit: 0)
+        #expect(dc.snapshot.version.updateFailure == nil)
     }
 
     @Test func theChangelogIsFetchedOnlyWhileAnUpdateIsAvailable() async {

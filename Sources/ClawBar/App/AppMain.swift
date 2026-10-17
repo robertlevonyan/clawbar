@@ -1,6 +1,7 @@
 import AppKit
 import ClawBarData
 import ClawBarShared
+import os
 
 enum CLIRunner {
     /// The exit status; `.run` only returns when the app quits.
@@ -23,17 +24,57 @@ enum CLIRunner {
 enum AppMain {
     static func run() -> Never {
         let paths = AppPaths.live()
-        guard let lock = InstanceLock.acquire(paths.lockFile) else {
+        let lock: InstanceLock
+        switch InstanceLock.acquire(paths.lockFile) {
+        case .acquired(let l):
+            lock = l
+        case .held:
             // Already running: bring its widget up instead of starting a second one.
-            IPC.post(IPC.show)
+            IPC.post(IPC.show, to: paths)
             exit(0)
+        case .failed(let e):
+            // Never start unlocked: two instances would both write config.json and state.json.
+            startFailed("cannot lock \(paths.lockFile.path): \(String(cString: strerror(e)))", paths: paths)
+            exit(1)
         }
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         let delegate = AppDelegate(paths: paths, lock: lock)
         app.delegate = delegate
-        withExtendedLifetime(delegate) { app.run() }
+        // kill, pkill and Ctrl-C quit like the menu does, so children and the widget's position are looked after.
+        let signals = TerminationSignals([SIGTERM, SIGINT]) { NSApp.terminate(nil) }
+        withExtendedLifetime((delegate, signals)) { app.run() }
         exit(0)
+    }
+
+    /// A start that fails before any window leaves a trace: stderr for a terminal, the unified log for a login
+    /// item, and error.log when its folder is writable.
+    private static func startFailed(_ message: String, paths: AppPaths) {
+        FileHandle.standardError.write(Data("ClawBar: \(message)\n".utf8))
+        Logger(subsystem: AppInfo.bundleID, category: "start").error("\(message, privacy: .public)")
+        ErrorLog(url: paths.errorLog).append("start: \(message)", now: Date(), timeZone: .current)
+    }
+}
+
+/// Turns signals into a handler call on the main queue; the default action would end the app on the spot.
+final class TerminationSignals {
+    private let sources: [DispatchSourceSignal]
+
+    init(_ signals: [Int32], handler: @escaping @MainActor () -> Void) {
+        sources = signals.map { s in
+            signal(s, SIG_IGN)
+            let source = DispatchSource.makeSignalSource(signal: s, queue: .main)
+            source.setEventHandler { MainActor.assumeIsolated { handler() } }
+            source.resume()
+            return source
+        }
+    }
+
+    func cancel() {
+        for source in sources {
+            source.cancel()
+            signal(Int32(source.handle), SIG_DFL)
+        }
     }
 }
 
@@ -89,7 +130,7 @@ enum RemoteControl {
             FileHandle.standardError.write(Data("ClawBar is not running\n".utf8))
             return 1
         }
-        IPC.send(c)
+        IPC.send(c, to: paths)
         print("sent \(c.wire)")
         return 0
     }
@@ -101,7 +142,7 @@ enum RemoteControl {
         }
         let nonce = UUID().uuidString
         let file = IPC.dumpFile(paths)
-        IPC.post(IPC.dumpState, userInfo: [IPC.nonceKey: nonce])
+        IPC.post(IPC.dumpState, to: paths, userInfo: [IPC.nonceKey: nonce])
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if let text = try? String(contentsOf: file, encoding: .utf8), let body = answer(text, nonce: nonce) {

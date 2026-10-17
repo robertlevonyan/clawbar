@@ -78,6 +78,14 @@ import ClawBarShared
         #expect(!VersionState(local: "2.1.302", latest: "2.1.292").updateAvailable)
         #expect(!VersionState(local: nil, latest: "2.1.302").updateAvailable)
     }
+
+    @Test func aFailedUpdateHoldsWhileBothVersionsItStartedFromDo() {
+        let f = UpdateFailure(exitCode: 1, outputTail: "", from: "2.1.302", to: "2.1.303")
+        #expect(f.holds(local: "2.1.302", latest: "2.1.303"))
+        #expect(!f.holds(local: "2.1.303", latest: "2.1.303"))
+        #expect(!f.holds(local: "2.1.302", latest: "2.1.304"))
+        #expect(UpdateFailure(exitCode: 1, outputTail: "").holds(local: "2.1.303", latest: "2.1.304"))
+    }
 }
 
 @Suite struct StalenessTests {
@@ -110,6 +118,30 @@ import ClawBarShared
 
     @Test func theLiveRootIsInApplicationSupport() {
         #expect(AppPaths.live(environment: [:]).root.path.hasSuffix("Library/Application Support/ClawBar"))
+    }
+
+    @Test func theUserAgentNamesThisVersionAndNotTheOriginalAsItsContact() {
+        #expect(AppInfo.userAgent == "ClawBar/\(AppInfo.version)")
+        #expect(!AppInfo.userAgent.contains(AppInfo.originalRepo.path))
+    }
+
+    @Test func oneRootHasOneCanonicalSpellingEvenBeforeItExists() {
+        let name = "cb-canon-\(UUID().uuidString)"
+        // /tmp is a symlink to /private/tmp; neither folder below it exists.
+        let short = AppPaths(root: URL(fileURLWithPath: "/tmp/\(name)/root"))
+        let long = AppPaths(root: URL(fileURLWithPath: "/private/tmp/\(name)/x/../root/"))
+        #expect(short.canonicalRoot == "/private/tmp/\(name)/root")
+        #expect(long.canonicalRoot == short.canonicalRoot)
+    }
+
+    @Test func theDefaultRootIsTheOneWithoutClawbarHomeHoweverItIsSpelled() {
+        let base = URL(fileURLWithPath: "/tmp/cb-default-\(UUID().uuidString)")
+        let def = base.appendingPathComponent("ClawBar")
+        #expect(AppPaths(root: def).isDefault(defaultRoot: def))
+        #expect(AppPaths(root: URL(fileURLWithPath: "/private" + def.path)).isDefault(defaultRoot: def))
+        #expect(!AppPaths(root: base.appendingPathComponent("sandbox")).isDefault(defaultRoot: def))
+        #expect(AppPaths.live(environment: [:]).isDefault())
+        #expect(!AppPaths.live(environment: ["CLAWBAR_HOME": "/tmp/cb-test"]).isDefault())
     }
 }
 

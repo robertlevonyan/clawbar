@@ -96,7 +96,7 @@ public enum UsageIssue: Sendable, Hashable {
     case launchFailed(String)
     case timedOut
     case probeFailed(String)
-    /// /usage answered without session or week limits: an API-key login.
+    /// /usage answered with the `/cost` summary: a login without a Claude subscription, e.g. an API key.
     case noLimits
     /// Claude Code refused one of the probe's options. Latched per CLI version.
     case flagRejected(String)
@@ -155,14 +155,24 @@ public struct AccountInfo: Sendable, Hashable {
 }
 
 public struct UpdateFailure: Sendable, Hashable {
-    /// nil when the update timed out.
+    /// nil when the update timed out; 0 when it exited cleanly but left the version where it was.
     public var exitCode: Int32?
     /// The last lines of its output, redacted.
     public var outputTail: String
+    /// The local and latest versions the run started from; the failure lasts only while both still hold.
+    public var from: String?
+    public var to: String?
 
-    public init(exitCode: Int32?, outputTail: String) {
+    public init(exitCode: Int32?, outputTail: String, from: String? = nil, to: String? = nil) {
         self.exitCode = exitCode
         self.outputTail = outputTail
+        self.from = from
+        self.to = to
+    }
+
+    /// Whether the versions the run started from still hold; an unrecorded one holds for any.
+    public func holds(local: String?, latest: String?) -> Bool {
+        (from == nil || local == from) && (to == nil || latest == to)
     }
 }
 
