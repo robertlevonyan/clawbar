@@ -1,0 +1,35 @@
+You are currently using your subscription to power your Claude Code usage
+
+Current session: 50% used · resets Oct 17 at 3:29am (Europe/Berlin)
+Current week (all models): 68% used · resets Oct 17 at 5:59am (Europe/Berlin)
+Current week (Fable): 8% used · resets Oct 17 at 5:59am (Europe/Berlin)
+
+What's contributing to your limits usage?
+Approximate, based on local sessions on this machine — does not include other devices or claude.ai. Behaviors are independent characteristics, not a breakdown.
+
+Last 24h · 4756 requests · 26 sessions
+  89% of your usage came from subagent-heavy sessions
+  84% of your usage was at >150k context
+  78% of your usage was at max effort
+  65% of your usage came from workflows
+  50% of your usage came from sessions active for 8+ hours
+  15% of your usage was while 4+ sessions ran in parallel
+  12% of your usage went to tool results over 10k tokens
+  Top skills: /notes 2%
+  Top subagents: helper 47%, tracker:sync 9%, builder 6%, writer 5%, planner 4%, forker 2%, scout 1%
+  Top plugins: tracker 10%
+  Top MCP servers: docs-server 1%
+
+Last 7d · 7589 requests · 96 sessions
+  82% of your usage came from subagent-heavy sessions
+  70% of your usage was at >150k context
+  59% of your usage was at max effort
+  49% of your usage came from workflows
+  37% of your usage came from sessions active for 8+ hours
+  14% of your usage was while 4+ sessions ran in parallel
+  11% of your usage went to always-on context over 40k tokens
+  10% of your usage went to tool results over 10k tokens
+  Top skills: /notes 2%, /tracker:sync 1%, /style 1%
+  Top subagents: helper 35%, tracker:sync 7%, builder 6%, writer 3%, planner 3%, tidy 2%, forker 2%, reviewer 1%, +1 more
+  Top plugins: tracker 8%, release-kit 1%
+  Top MCP servers: docs-server 1%

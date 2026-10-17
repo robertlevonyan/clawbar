@@ -1,0 +1,18 @@
+Current session: 20% used · resets Oct 17 at 3:30am (Europe/Berlin)
+Current week (all models): 40% used · resets Oct 22 at 6am (Europe/Berlin)
+
+Last 7d · 120 requests · 9 sessions
+  61% of your usage hit a >100k-token cache miss
+  52% of your usage was at >150k context
+  48% of your usage came from subagent-heavy sessions
+  33% of your usage was while 4+ sessions ran in parallel
+  27% of your usage came from sessions active for 8+ hours
+  21% of your usage was at max effort
+  14% of your usage came from workflows
+  9% of your usage went to always-on context over 40k tokens
+  5% of your usage went to tool results over 10k tokens
+  Top skills: /notes 2%, /style 1%
+  Top subagents: helper 35%, reviewer 7%, +3 more
+  Top plugins: tracker 8%, release-kit 1%, +1 more
+  Top MCP servers: docs-server 1%
+  A brand new kind of line nobody has seen yet

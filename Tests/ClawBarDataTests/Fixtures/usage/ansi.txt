@@ -1,0 +1,5 @@
+[1mCurrent session[22m: [32m15% used[39m · resets Oct 17 at 3:30am (Europe/Berlin)
+Current week (all models): [33m62% used[39m · resets Oct 22 at 6am (Europe/Berlin)
+
+Last 24h · 10 requests · 2 sessions
+  50% of your usage was at max effort

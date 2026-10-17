@@ -1,0 +1,11 @@
+{
+  "page": {"id": "x", "name": "Claude", "url": "https://status.claude.com", "updated_at": "2026-10-16T22:00:00.000Z"},
+  "components": [
+    {"id": "c1", "name": "claude.ai", "status": "operational", "group": false, "group_id": null},
+    {"id": "c2", "name": "Claude API (api.anthropic.com)", "status": "operational", "group": false, "group_id": null},
+    {"id": "c3", "name": "Claude Code", "status": "Operational", "group": false, "group_id": null}
+  ],
+  "incidents": [],
+  "scheduled_maintenances": [],
+  "status": {"indicator": "none", "description": "All Systems Operational"}
+}

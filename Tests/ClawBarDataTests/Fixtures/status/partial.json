@@ -1,0 +1,15 @@
+{
+  "page": {"id": "x", "name": "Claude", "url": "https://status.claude.com", "updated_at": "2026-10-16T22:00:00.000Z"},
+  "components": [
+    {"id": "g1", "name": "Claude Apps", "status": "partial_outage", "group": true, "group_id": null, "components": ["c1"]},
+    {"id": "c1", "name": "claude.ai", "status": "operational", "group": false, "group_id": "g1"},
+    {"id": "c2", "name": "Claude API (api.anthropic.com)", "status": "partial_outage", "group": false, "group_id": null},
+    {"id": "c3", "name": "Claude Code", "status": "degraded_performance", "group": false, "group_id": null}
+  ],
+  "incidents": [
+    {"id": "i1", "name": "Elevated errors on Claude API", "status": "investigating", "impact": "minor"},
+    {"id": "i2", "name": "Slow responses in Claude Code", "status": "identified", "impact": "minor"}
+  ],
+  "scheduled_maintenances": [],
+  "status": {"indicator": "minor", "description": "Partially Degraded Service"}
+}

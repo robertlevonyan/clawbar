@@ -1,0 +1,4 @@
+You are currently using an API key to power your Claude Code usage
+
+Last 24h · 52 requests · 3 sessions
+  40% of your usage was at >150k context

@@ -1,0 +1,6 @@
+{
+  "loggedIn": true,
+  "authMethod": "api_key",
+  "apiProvider": "firstParty",
+  "configDirectory": "/Users/example/.claude-work"
+}

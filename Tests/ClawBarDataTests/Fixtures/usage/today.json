@@ -1,0 +1,31 @@
+{
+  "type": "result",
+  "subtype": "success",
+  "is_error": false,
+  "duration_ms": 2340,
+  "duration_api_ms": 0,
+  "num_turns": 0,
+  "result": "You are currently using your subscription to power your Claude Code usage\n\nCurrent session: 50% used · resets Oct 17 at 3:29am (Europe/Berlin)\nCurrent week (all models): 68% used · resets Oct 17 at 5:59am (Europe/Berlin)\nCurrent week (Fable): 8% used · resets Oct 17 at 5:59am (Europe/Berlin)\n\nWhat's contributing to your limits usage?\nApproximate, based on local sessions on this machine — does not include other devices or claude.ai. Behaviors are independent characteristics, not a breakdown.\n\nLast 24h · 4756 requests · 26 sessions\n  89% of your usage came from subagent-heavy sessions\n  84% of your usage was at >150k context\n  78% of your usage was at max effort\n  65% of your usage came from workflows\n  50% of your usage came from sessions active for 8+ hours\n  15% of your usage was while 4+ sessions ran in parallel\n  12% of your usage went to tool results over 10k tokens\n  Top skills: /notes 2%\n  Top subagents: helper 47%, tracker:sync 9%, builder 6%, writer 5%, planner 4%, forker 2%, scout 1%\n  Top plugins: tracker 10%\n  Top MCP servers: docs-server 1%\n\nLast 7d · 7589 requests · 96 sessions\n  82% of your usage came from subagent-heavy sessions\n  70% of your usage was at >150k context\n  59% of your usage was at max effort\n  49% of your usage came from workflows\n  37% of your usage came from sessions active for 8+ hours\n  14% of your usage was while 4+ sessions ran in parallel\n  11% of your usage went to always-on context over 40k tokens\n  10% of your usage went to tool results over 10k tokens\n  Top skills: /notes 2%, /tracker:sync 1%, /style 1%\n  Top subagents: helper 35%, tracker:sync 7%, builder 6%, writer 3%, planner 3%, tidy 2%, forker 2%, reviewer 1%, +1 more\n  Top plugins: tracker 8%, release-kit 1%\n  Top MCP servers: docs-server 1%\n",
+  "stop_reason": null,
+  "session_id": "00000000-0000-4000-8000-00000000000a",
+  "total_cost_usd": 0,
+  "usage": {
+    "input_tokens": 0,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "output_tokens": 0,
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 0,
+      "ephemeral_5m_input_tokens": 0
+    }
+  },
+  "modelUsage": {},
+  "permission_denials": [],
+  "local_command": "usage",
+  "uuid": "00000000-0000-4000-8000-00000000000b"
+}
