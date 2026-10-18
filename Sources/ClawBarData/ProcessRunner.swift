@@ -37,14 +37,12 @@ final class ProcessRunner: ProcessRunning {
             return r.children.filter { !$0.value }.map(\.key)
         }
         guard !victims.isEmpty else { return }
-        for pid in victims { Self.signal(pid, SIGTERM) }
+        for pid in victims { send(SIGTERM, to: pid) }
         let deadline = Date().addingTimeInterval(1)
         while Date() < deadline, registry.withLock({ r in victims.contains { r.children[$0] != nil } }) {
             usleep(10_000)
         }
-        for pid in registry.withLock({ r in victims.filter { r.children[$0] != nil } }) {
-            Self.signal(pid, SIGKILL)
-        }
+        for pid in victims { send(SIGKILL, to: pid) }
     }
 
     // MARK: - Launch
@@ -122,7 +120,7 @@ final class ProcessRunner: ProcessRunning {
             r.children[spawned] = spec.survivesQuit
             return r.closed
         }
-        if closedMeanwhile && !spec.survivesQuit { Self.signal(spawned, SIGKILL) }
+        if closedMeanwhile && !spec.survivesQuit { send(SIGKILL, to: spawned) }
 
         let child = Child(pid: spawned, cap: spec.outputCap, grace: spec.drainGrace, capture: capture, done: done)
         if capture { child.drain(out: outPipe[0], err: errPipe[0]) }
@@ -136,12 +134,10 @@ final class ProcessRunner: ProcessRunning {
         }
 
         let killAfter = spec.killAfter
-        DispatchQueue.global().asyncAfter(deadline: .now() + spec.timeout) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + spec.timeout) { [self] in
             guard child.markTimedOut() else { return }
-            Self.signal(spawned, SIGTERM)
-            DispatchQueue.global().asyncAfter(deadline: .now() + killAfter) {
-                if child.isRunning { Self.signal(spawned, SIGKILL) }
-            }
+            send(SIGTERM, to: spawned)
+            DispatchQueue.global().asyncAfter(deadline: .now() + killAfter) { [self] in send(SIGKILL, to: spawned) }
         }
     }
 
@@ -159,10 +155,11 @@ final class ProcessRunner: ProcessRunning {
         return nil
     }
 
-    /// The child's whole process group, then the child itself in case it left the group.
-    static func signal(_ pid: Int32, _ sig: Int32) {
+    /// The child's whole process group, which may outlive it, then the child in case it left the group, but only
+    /// while unreaped, since after that its pid is free for reuse.
+    private func send(_ sig: Int32, to pid: Int32) {
         _ = kill(-pid, sig)
-        _ = kill(pid, sig)
+        if registry.withLock({ $0.children[pid] != nil }) { _ = kill(pid, sig) }
     }
 }
 
@@ -191,8 +188,6 @@ private final class Child: Sendable {
         self.grace = grace
         state = Mutex(State(outOpen: capture, errOpen: capture, done: done))
     }
-
-    var isRunning: Bool { state.withLock { !$0.reaped } }
 
     func drain(out: Int32, err: Int32) {
         let o = FileHandle(fileDescriptor: out, closeOnDealloc: true)

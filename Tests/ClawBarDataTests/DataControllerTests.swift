@@ -13,7 +13,7 @@ final class Harness {
     let clock = TestClock(Harness.t0)
     let spy = ReadSpy()
     var table = FakeTable(starts: [:])
-    var login: LoginEnvironment?
+    var shell = FakeLoginShell([nil])
     var candidates: [String] = []
     var config = Config()
     /// Added to the environment the controller inherits.
@@ -37,11 +37,11 @@ final class Harness {
     }
 
     var deps: DataController.Dependencies {
-        let login = login
+        let shell = shell
         return DataController.Dependencies(
             runner: runner, http: http, clock: clock.read, timeZone: berlin,
             environment: ["HOME": home, "PATH": "/usr/bin:/bin", "CLAUDECODE": "1"].merging(extraEnvironment) { $1 }, home: home,
-            table: table, readFile: spy.reader, loginShell: { _, _, _ in login }, candidates: candidates
+            table: table, readFile: spy.reader, loginShell: { _, _, _ in shell.answer() }, candidates: candidates
         )
     }
 
@@ -92,7 +92,7 @@ final class Counter {
 
     @Test func probesRunTheLocatedClaudeWithTheScrubbedEnvironment() async throws {
         let h = Harness()
-        h.login = LoginEnvironment(path: "/Users/example/.nvm/bin:/usr/bin", claudeConfigDir: "/Users/example/.claude-alt")
+        h.shell = FakeLoginShell([LoginEnvironment(path: "/Users/example/.nvm/bin:/usr/bin", claudeConfigDir: "/Users/example/.claude-alt")])
         let dc = h.make()
         dc.tick(now: t0)
         #expect(await eventually { h.runner.count(.usage) == 1 })
@@ -121,6 +121,34 @@ final class Counter {
         #expect(dc.snapshot.usageAt == t0)
         let log = try String(contentsOf: h.paths.errorLog, encoding: .utf8)
         #expect(log.contains("usage: exit 1: boom"))
+    }
+
+    @Test func aTimedOutProbeKeepsTheLastGoodValue() async {
+        let h = Harness()
+        h.runner.reply(.usage, data: Fixture.data("usage/today.json"))
+        let dc = h.make()
+        dc.tick(now: t0)
+        #expect(await eventually { dc.snapshot.usage?.sessionPercent == 50 })
+        h.runner.reply(.usage, .now(.success(ProcessOutcome(pid: 900, termination: .signal(SIGTERM), timedOut: true))))
+        h.clock.now = t0 + 60
+        dc.tick(now: t0 + 60)
+        #expect(await eventually { dc.snapshot.usageIssue == .timedOut })
+        #expect(dc.snapshot.usage?.sessionPercent == 50)
+        #expect(dc.snapshot.usageAt == t0)
+    }
+
+    @Test func aStampWithoutADateIsLoggedOncePerShape() async throws {
+        let h = Harness()
+        h.runner.reply(.usage, data: todayEnvelope { $0["result"] = "Current session: 5% used · resets in 2 hr\n" })
+        let dc = h.make()
+        dc.tick(now: t0)
+        #expect(await eventually { dc.snapshot.usage?.sessionPercent == 5 })
+        h.runner.reply(.usage, data: todayEnvelope { $0["result"] = "Current session: 6% used · resets in 1 hr\n" })
+        h.clock.now = t0 + 60
+        dc.tick(now: t0 + 60)
+        #expect(await eventually { dc.snapshot.usage?.sessionPercent == 6 })
+        let log = try String(contentsOf: h.paths.errorLog, encoding: .utf8)
+        #expect(log.split(separator: "\n").filter { $0.hasSuffix("\tusage-stamp: no date in \"in # hr\"") }.count == 1)
     }
 
     @Test func aLoginWithoutASubscriptionClearsTheOldLimits() async {
@@ -215,6 +243,55 @@ final class Counter {
         #expect(dc.snapshot.usageIssue == nil)
     }
 
+    @Test func aLoginShellWithoutAnAnswerIsLoggedOnceAndAskedAgainUntilItFindsClaude() async throws {
+        let h = Harness(claude: false)
+        let nvm = h.installClaude(".nvm/versions/node/v22.11.0/bin/claude")
+        h.shell = FakeLoginShell([nil, nil, LoginEnvironment(claudePath: nvm)])
+        let dc = h.make()
+        dc.tick(now: t0)
+        #expect(await eventually { dc.snapshot.usageIssue == .claudeNotFound })
+        dc.tick(now: t0 + 59)
+        await settle()
+        #expect(h.shell.runs == 1)
+        h.clock.now = t0 + 60
+        dc.tick(now: t0 + 60)
+        #expect(await eventually { h.shell.runs == 2 })
+        await settle()
+        #expect(dc.snapshot.usageIssue == .claudeNotFound)
+        h.clock.now = t0 + 120
+        dc.tick(now: t0 + 120)
+        #expect(await eventually { h.runner.count(.usage) == 1 })
+        #expect(dc.snapshot.usageIssue == nil)
+        #expect(h.runner.calls.allSatisfy { $0.executable == nvm })
+        let log = try String(contentsOf: h.paths.errorLog, encoding: .utf8)
+        #expect(log.split(separator: "\n").filter { $0.contains("\tlogin: ") }.count == 1)
+    }
+
+    /// A new controller ticked once a minute from t0, the clock along, with each tick's completions let run.
+    func tickEveryMinute(_ h: Harness, times: Int) async {
+        let dc = h.make()
+        for i in 0 ..< times {
+            h.clock.now = t0 + TimeInterval(60 * i)
+            dc.tick(now: h.clock.now)
+            await settle()
+        }
+    }
+
+    @Test func theLoginShellIsAskedAtMostFourTimes() async {
+        let h = Harness(claude: false)
+        await tickEveryMinute(h, times: 5)
+        #expect(h.shell.runs == 4)
+    }
+
+    @Test func theLoginShellIsAskedAgainOnlyWhileItGaveNoAnswerAndClaudeIsMissing() async {
+        let answered = Harness(claude: false)
+        answered.shell = FakeLoginShell([LoginEnvironment()])
+        for h in [answered, Harness()] {
+            await tickEveryMinute(h, times: 3)
+            #expect(h.shell.runs == 1)
+        }
+    }
+
     @Test func onChangeComesOnlyFromAsyncCompletions() async {
         let h = Harness()
         h.runner.reply(.usage, data: Fixture.data("usage/today.json"))
@@ -241,7 +318,7 @@ final class Counter {
     @Test func sessionsAreReadSynchronouslyFromTheLoginConfigDirWithoutOurChildren() async {
         let h = Harness()
         let alt = h.home + "/.claude-alt"
-        h.login = LoginEnvironment(claudeConfigDir: alt)
+        h.shell = FakeLoginShell([LoginEnvironment(claudeConfigDir: alt)])
         h.table = FakeTable(starts: [4242: .unknown, 4343: .unknown])
         h.session(4242, in: alt)
         h.session(4343, in: alt, status: "waiting")

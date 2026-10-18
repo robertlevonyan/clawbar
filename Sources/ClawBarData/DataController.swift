@@ -37,8 +37,6 @@ public final class DataController {
         }
     }
 
-    private enum Resolution { case pending, running, done }
-
     /// One probe's bookkeeping: cadence counts from the last attempt.
     private struct Slot {
         var lastTry: Date?
@@ -57,8 +55,10 @@ public final class DataController {
     private var latch: UsageLatch?
     private let weather: WeatherService
 
-    private var resolution = Resolution.pending
     private var login: LoginEnvironment?
+    /// Login shell runs that finished; the claude probes wait for the first.
+    private var loginRuns = 0
+    private var loginRunning = false
     private var claude: ClaudeLocator.Found?
     private var lastLocate: Date?
 
@@ -78,6 +78,8 @@ public final class DataController {
     private var failures: [String: String] = [:]
 
     static let changelogRetry: TimeInterval = 600
+    /// Each run sources the user's rc files again, so a shell that never answers is not asked forever.
+    static let loginRunLimit = 4
 
     public convenience init(config: Config, paths: AppPaths) {
         self.init(config: config, paths: paths, deps: .live())
@@ -101,13 +103,12 @@ public final class DataController {
     public func apply(config new: Config) {
         let old = config
         config = new.clamped()
-        if config.claudePath != old.claudePath, resolution == .done { locate(now: deps.clock()) }
+        if config.claudePath != old.claudePath, resolved { locate(now: deps.clock()) }
     }
 
     /// The data tick: collect finished probes, start those whose interval has passed since their last attempt.
     public func tick(now: Date) {
         guard !stopped else { return }
-        if resolution == .pending { resolve() }
         weather.tick(now: now, config: config)
         snapshot.place = weather.place
         startDue(now: now)
@@ -115,13 +116,13 @@ public final class DataController {
 
     /// Re-reads the session registry synchronously.
     public func pollSessions(now: Date) {
-        guard !stopped, resolution == .done else { return }
+        guard !stopped, resolved else { return }
         readSessions(now: now)
     }
 
     /// Refresh now: start the usage probe unless one is running or the probe is latched.
     public func refreshNow() {
-        guard !stopped, resolution == .done else { return }
+        guard !stopped, resolved else { return }
         let now = deps.clock()
         if claude == nil { locate(now: now) }
         guard latch == nil, !usage.running, claude != nil else { return }
@@ -170,15 +171,18 @@ public final class DataController {
 
     // MARK: - Startup
 
-    /// The login shell once, then claude's location; the claude probes wait for both.
-    private func resolve() {
-        resolution = .running
+    /// The login shell, then claude's location again; the claude probes wait for the first answer.
+    private func runLoginShell(now: Date) {
+        lastLocate = now
+        loginRunning = true
         let capture = deps.loginShell, runner = deps.runner, env = deps.environment, home = deps.home
         spawn { me in
             let login = await capture(runner, env, home)
             me.completing {
+                me.loginRunning = false
+                me.loginRuns += 1
                 me.login = login
-                me.resolution = .done
+                if login == nil { me.fail("login", "the login shell gave no answer") } else { me.succeed("login") }
                 let now = me.deps.clock()
                 me.locate(now: now)
                 me.readSessions(now: now)
@@ -203,12 +207,12 @@ public final class DataController {
 
     private func startDue(now: Date) {
         if config.showStatus, status.due(config.statusIntervalSeconds, now) { startStatus(now: now) }
-        guard resolution == .done else { return }
-        // Not found: look again every usage interval.
-        if claude == nil, Cadence.due(last: lastLocate, interval: TimeInterval(config.usageIntervalSeconds), now: now) {
-            locate(now: now)
+        // Not found: look again every usage interval, through a login shell that gave no answer yet, since one slowed
+        // down at login may be the only one that knows where.
+        if claude == nil, !loginRunning, Cadence.due(last: lastLocate, interval: TimeInterval(config.usageIntervalSeconds), now: now) {
+            if login == nil, loginRuns < Self.loginRunLimit { runLoginShell(now: now) } else { locate(now: now) }
         }
-        guard claude != nil else { return }
+        guard resolved, claude != nil else { return }
         if version.due(config.versionIntervalSeconds, now) { startVersion(now: now) }
         if latch == nil, usage.due(config.usageIntervalSeconds, now) { startUsage(now: now) }
         if config.showAccount, account.due(config.accountIntervalSeconds, now) { startAccount(now: now) }
@@ -236,6 +240,7 @@ public final class DataController {
                     me.snapshot.usageAt = clock()
                     me.snapshot.usageIssue = nil
                     me.succeed("usage")
+                    me.logUnread(report.unreadStamps)
                 case .issue(.noLimits):
                     // A login without a subscription: the old subscription's numbers no longer apply, its stats do.
                     me.snapshot.usage = report.stats ?? UsageSnapshot()
@@ -256,6 +261,17 @@ public final class DataController {
                     me.fail("usage", Self.describe(issue))
                 }
             }
+        }
+    }
+
+    /// Reset stamps in a format the parser does not know, by shape; the next CLI change shows up here.
+    private func logUnread(_ stamps: [String]) {
+        var shapes: [String] = []
+        for s in stamps.map(UsageParser.shape) where !shapes.contains(s) { shapes.append(s) }
+        if shapes.isEmpty {
+            succeed("usage-stamp")
+        } else {
+            fail("usage-stamp", "no date in " + shapes.map { "\"\($0)\"" }.joined(separator: ", "))
         }
     }
 
@@ -416,6 +432,8 @@ public final class DataController {
     }
 
     // MARK: - Plumbing
+
+    private var resolved: Bool { loginRuns > 0 }
 
     private var configDirectory: String {
         ClaudeConfigDir.resolve(account: snapshot.account, login: login, environment: deps.environment, home: deps.home)

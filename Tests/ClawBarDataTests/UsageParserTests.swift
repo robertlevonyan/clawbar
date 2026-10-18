@@ -3,6 +3,13 @@ import Testing
 import ClawBarShared
 @testable import ClawBarData
 
+extension UsageParser {
+    /// The outcome alone, which is all most tests look at.
+    static func parse(_ raw: String, now: Date, timeZone: TimeZone) -> Outcome {
+        read(raw, now: now, timeZone: timeZone).outcome
+    }
+}
+
 /// Every fixture is a sanitised `/usage` text; `now` is chosen next to its stamps.
 @Suite struct UsageParserTests {
     /// 00:30 in Berlin on Oct 17, shortly before the fixtures' 3:29am reset.
@@ -192,5 +199,53 @@ import ClawBarShared
             return
         }
         #expect(u.day == UsagePeriod(requests: 1298, sessions: 12, lines: ["x"]))
+    }
+
+    @Test func theGuidesSampleParses() throws {
+        // upstream's docs/PORTING.md: Oct 17 5:19am MSK (+3) = 02:19 UTC, Oct 19 5:59am = 02:59 UTC
+        let u = try #require(usage("porting-guide.txt", now: utc("2026-10-16T12:00:00Z")))
+        #expect(u.sessionPercent == 10)
+        #expect(u.sessionReset == utc("2026-10-17T02:19:00Z"))
+        #expect(u.weekPercent == 26)
+        #expect(u.weekReset == utc("2026-10-19T02:59:00Z"))
+        #expect(u.modelWeeks == [ModelWeek(name: "Fable", percent: 19, reset: utc("2026-10-19T02:59:00Z"))])
+        #expect(u.day?.requests == 1043 && u.day?.sessions == 28 && u.day?.lines.count == 6)
+        // The guide's "..." is kept like any unknown line.
+        #expect(u.week7 == UsagePeriod(requests: 4558, sessions: 83, lines: ["78% of your usage was at >150k context", "..."]))
+    }
+
+    @Test func leapDayParsesOnlyInALeapYear() {
+        #expect(UsageParser.resetDate("Feb 29, 2028 at 6am (Europe/Berlin)", now: now, timeZone: berlin) == utc("2028-02-29T05:00:00Z"))
+        #expect(UsageParser.resetDate("Feb 29, 2027 at 6am (Europe/Berlin)", now: now, timeZone: berlin) == nil)
+        let stamp = "Feb 29 at 6am (Europe/Berlin)"
+        #expect(UsageParser.resetDate(stamp, now: utc("2028-02-25T12:00:00Z"), timeZone: berlin) == utc("2028-02-29T05:00:00Z"))
+        #expect(UsageParser.resetDate(stamp, now: utc("2027-02-25T12:00:00Z"), timeZone: berlin) == nil)
+    }
+
+    @Test func aStampMinutesAgoStaysInThePast() {
+        // 00:30 in Berlin: 12:25am today was five minutes ago, not a reset next year.
+        #expect(UsageParser.resetDate("Oct 17 at 12:25am (Europe/Berlin)", now: now, timeZone: berlin) == utc("2026-10-16T22:25:00Z"))
+    }
+
+    @Test func aStampNoFormReadsIsReported() {
+        let text = """
+        Current session: 5% used · resets in 2 hr
+        Current week (all models): 6% used · resets Oct 17 at 3am (Europe/Berlin)
+        Current week (Sonnet only): 7% used · resets next Thursday
+        """
+        let (outcome, unread) = UsageParser.read(text, now: now, timeZone: berlin)
+        guard case .usage(let u) = outcome else {
+            Issue.record("no usage")
+            return
+        }
+        #expect(u.sessionPercent == 5 && u.sessionReset == nil)
+        #expect(u.weekReset == utc("2026-10-17T01:00:00Z"))
+        #expect(unread == ["in 2 hr", "next Thursday"])
+        #expect(UsageParser.read(Fixture.text("usage/today.txt"), now: now, timeZone: berlin).unreadStamps == [])
+        #expect(UsageParser.read(Fixture.text("usage/no-reset.txt"), now: now, timeZone: berlin).unreadStamps == [])
+    }
+
+    @Test func aStampsShapeMasksItsDigits() {
+        #expect(UsageParser.shape("Oct 17 at 3:30am (Europe/Berlin)") == "Oct ## at #:##am (Europe/Berlin)")
     }
 }
