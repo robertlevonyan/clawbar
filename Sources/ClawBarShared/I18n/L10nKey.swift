@@ -104,6 +104,14 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case menuLogin = "menu.login"
     case menuConfig = "menu.config"
     case menuLanguage = "menu.language"
+    /// The Show in widget submenu; its items are the original's Settings switches.
+    case menuShown = "menu.shown"
+    case setShowMascot = "set.showMascot"
+    case setShowSky = "set.showSky"
+    case setShowStatus = "set.showStatus"
+    case setShowSessions = "set.showSessions"
+    case setShowAccount = "set.showAccount"
+    case setShowStats = "set.showStats"
     case menuQuit = "menu.quit"
 
     // Hearts
@@ -190,4 +198,15 @@ public enum L10nKey: String, CaseIterable, Sendable {
     case skyWind = "sky.wind"
     case skyNoData = "sky.noData"
     case skySun = "sky.sun"
+    /// `{0}, {1}% lit` with a moon name and the percentage.
+    case skyMoon = "sky.moon"
+    /// The original's `sky.moonNames`, from the new moon round to the waning crescent.
+    case skyMoonName0 = "sky.moonNames.0"
+    case skyMoonName1 = "sky.moonNames.1"
+    case skyMoonName2 = "sky.moonNames.2"
+    case skyMoonName3 = "sky.moonNames.3"
+    case skyMoonName4 = "sky.moonNames.4"
+    case skyMoonName5 = "sky.moonNames.5"
+    case skyMoonName6 = "sky.moonNames.6"
+    case skyMoonName7 = "sky.moonNames.7"
 }

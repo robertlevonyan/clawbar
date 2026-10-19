@@ -13,7 +13,7 @@ public enum StringsDE {
         .uiOpenStatus: .text("status.claude.com öffnen"),
         .uiDay: .text("LETZTE 24 STUNDEN · DIESER MAC"),
         .uiWeek7: .text("LETZTE 7 TAGE"),
-        .uiPortOf: .text("macOS-Portierung von clawd-usage-winwidget {0} (MIT)"),
+        .uiPortOf: .text("macOS-Portierung von clawd-usage-winwidget {0}, mit einigen Funktionen späterer Versionen (MIT)"),
 
         .spanD: .text("{0}d {1}h"),
         .spanH: .text("{0}h {1:00}min"),
@@ -94,6 +94,13 @@ public enum StringsDE {
         .menuLogin: .text("Beim Anmelden öffnen"),
         .menuConfig: .text("config.json öffnen"),
         .menuLanguage: .text("Sprache"),
+        .menuShown: .text("Im Widget zeigen"),
+        .setShowMascot: .text("Clawd"),
+        .setShowSky: .text("Himmel und Wetter hinter ihm"),
+        .setShowStatus: .text("Anthropic-Status"),
+        .setShowSessions: .text("Laufende Sitzungen"),
+        .setShowAccount: .text("Plan und Konto"),
+        .setShowStats: .text("Letzte 24 Stunden und 7 Tage (Details)"),
         .menuQuit: .text("ClawBar beenden"),
 
         .health6: .text("voller Energie"),
@@ -175,5 +182,14 @@ public enum StringsDE {
         .skyWind: .text("Wind {0} m/s"),
         .skyNoData: .text("Wetter: keine Daten"),
         .skySun: .text("Sonnenaufgang {0} · Sonnenuntergang {1}"),
+        .skyMoon: .text("Mond: {0}, {1} % beleuchtet"),
+        .skyMoonName0: .text("Neumond"),
+        .skyMoonName1: .text("zunehmende Sichel"),
+        .skyMoonName2: .text("erstes Viertel"),
+        .skyMoonName3: .text("zunehmender Mond"),
+        .skyMoonName4: .text("Vollmond"),
+        .skyMoonName5: .text("abnehmender Mond"),
+        .skyMoonName6: .text("letztes Viertel"),
+        .skyMoonName7: .text("abnehmende Sichel"),
     ]
 }

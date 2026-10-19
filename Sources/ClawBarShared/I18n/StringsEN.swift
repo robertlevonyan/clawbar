@@ -13,7 +13,7 @@ public enum StringsEN {
         .uiOpenStatus: .text("Open status.claude.com"),
         .uiDay: .text("LAST 24 HOURS · THIS COMPUTER"),
         .uiWeek7: .text("LAST 7 DAYS"),
-        .uiPortOf: .text("macOS port of clawd-usage-winwidget {0} (MIT)"),
+        .uiPortOf: .text("macOS port of clawd-usage-winwidget {0}, with some features of later releases (MIT)"),
 
         .spanD: .text("{0}d {1}h"),
         .spanH: .text("{0}h {1:00}m"),
@@ -94,6 +94,13 @@ public enum StringsEN {
         .menuLogin: .text("Launch at login"),
         .menuConfig: .text("Open config.json"),
         .menuLanguage: .text("Language"),
+        .menuShown: .text("Show in widget"),
+        .setShowMascot: .text("Clawd"),
+        .setShowSky: .text("Sky and weather behind him"),
+        .setShowStatus: .text("Anthropic status"),
+        .setShowSessions: .text("Running sessions"),
+        .setShowAccount: .text("Plan and account"),
+        .setShowStats: .text("Last 24 hours and 7 days (details)"),
         .menuQuit: .text("Quit ClawBar"),
 
         .health6: .text("full of energy"),
@@ -175,5 +182,14 @@ public enum StringsEN {
         .skyWind: .text("wind {0} m/s"),
         .skyNoData: .text("weather: no data"),
         .skySun: .text("sunrise {0} · sunset {1}"),
+        .skyMoon: .text("moon: {0}, {1}% lit"),
+        .skyMoonName0: .text("new moon"),
+        .skyMoonName1: .text("waxing crescent"),
+        .skyMoonName2: .text("first quarter"),
+        .skyMoonName3: .text("waxing gibbous"),
+        .skyMoonName4: .text("full moon"),
+        .skyMoonName5: .text("waning gibbous"),
+        .skyMoonName6: .text("last quarter"),
+        .skyMoonName7: .text("waning crescent"),
     ]
 }
